@@ -19,7 +19,11 @@ app.post('/api/scrape', async (req, res) => {
   console.log('Received scrape request:', {
     url: req.body.url,
     hasCredentials: !!req.body.credentials,
-    supplierName: req.body.credentials?.supplierName
+    supplierName: req.body.credentials?.supplierName,
+    username: req.body.credentials?.username,
+    hasPassword: !!req.body.credentials?.password,
+    passwordLength: req.body.credentials?.password?.length || 0,
+    loginUrl: req.body.credentials?.loginUrl
   });
 
   const { url, credentials } = req.body;
@@ -61,23 +65,25 @@ app.post('/api/scrape', async (req, res) => {
 
     const page = await context.newPage();
 
-    // Login if credentials provided
+    // Login FIRST if credentials provided, THEN navigate to product
     if (credentials && credentials.username && credentials.password) {
       console.log(`Logging into ${credentials.supplierName}...`);
 
       try {
-        if (credentials.supplierName === 'Richelieu') {
+        if (credentials.supplierName && credentials.supplierName.toLowerCase().includes('richelieu')) {
           await loginToRichelieu(page, credentials);
         } else if (credentials.loginUrl) {
           await genericLogin(page, credentials);
         }
+        console.log('Login complete, now navigating to product page...');
       } catch (loginError) {
         console.error('Login failed:', loginError);
         // Continue without login - will get public pricing
       }
     }
 
-    // Navigate to product page
+    // Navigate to product page (session should be active from login)
+    console.log(`Navigating to product: ${url}`);
     await page.goto(url, {
       waitUntil: 'domcontentloaded',
       timeout: 30000
@@ -156,17 +162,47 @@ function detectSupplier(url) {
 // Richelieu login
 async function loginToRichelieu(page, credentials) {
   console.log('Navigating to Richelieu login page...');
-  await page.goto('https://www.richelieu.com/ca/en/login', {
-    waitUntil: 'networkidle',
+  const loginUrl = credentials.loginUrl || 'https://www.richelieu.com/ca/en/user/login';
+  await page.goto(loginUrl, {
+    waitUntil: 'domcontentloaded',
     timeout: 30000
   });
 
+  // Wait for page to be ready
+  await page.waitForTimeout(2000);
+
+  // Check if there's a "Sign In" button that opens the login modal
+  try {
+    const signInButton = await page.$('button:has-text("Sign In"), a:has-text("Sign In"), button:has-text("Log In")');
+    if (signInButton) {
+      console.log('Clicking sign in button to open login form...');
+      await signInButton.click();
+      await page.waitForTimeout(1000);
+    }
+  } catch (e) {
+    console.log('No sign in button found, proceeding to fill form...');
+  }
+
+  // Wait for email field to be visible
+  try {
+    await page.waitForSelector('input[type="email"], input[name="email"], input#email', {
+      state: 'visible',
+      timeout: 5000
+    });
+  } catch (e) {
+    console.log('Email field not visible, trying alternative selectors...');
+  }
+
   // Enter credentials
-  await page.fill('input[name="username"], input#username', credentials.username);
-  await page.fill('input[name="password"], input#password', credentials.password);
+  await page.fill('input[type="email"], input[name="email"], input#email', credentials.username, {
+    timeout: 5000
+  });
+  await page.fill('input[type="password"], input[name="password"], input#password', credentials.password, {
+    timeout: 5000
+  });
 
   // Click login button
-  await page.click('button[type="submit"], button:has-text("Sign In"), button:has-text("Log In")');
+  await page.click('button[type="submit"], button:has-text("Sign In"), button:has-text("Log In"), input[type="submit"]');
 
   // Wait for login to complete
   await page.waitForTimeout(3000);
