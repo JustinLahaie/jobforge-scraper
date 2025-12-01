@@ -89,8 +89,8 @@ app.post('/api/scrape', async (req, res) => {
       timeout: 30000
     });
 
-    // Wait for content to load
-    await page.waitForTimeout(2000);
+    // Wait for content to load (increased for dynamic content)
+    await page.waitForTimeout(3000);
 
     // Detect supplier and extract data
     const supplierName = detectSupplier(url);
@@ -243,15 +243,15 @@ async function scrapeRichelieu(page) {
     // Product name
     const name = getTextContent('h1.product-name, h1[itemprop="name"], .product-title h1, h1');
 
-    // SKU - try multiple selectors
-    let sku = getTextContent('.product-code, .sku-number, span[itemprop="sku"], .product-sku');
+    // SKU - try multiple selectors (prioritize Richelieu-specific .pms-PartNumber)
+    let sku = getTextContent('.pms-PartNumber, [itemprop="sku"], .product-sku, .product-code, .sku-number');
 
-    // Price - Richelieu authenticated pricing selectors
-    let price = getTextContent('.pms-PriceBlock_Main .pms-PriceBlock_BreaksPrice');
+    // Price - Richelieu authenticated pricing selectors (prioritize 2025 selectors)
+    let price = getTextContent('.pms-Price, [itemprop="price"], .product-price, .pms-PriceBlock_Main .pms-PriceBlock_BreaksPrice');
 
     // Fallback to public pricing if not logged in
     if (!price) {
-      price = getTextContent('.your-price, .price-now, .product-price .price, .price-box .price, .price, [class*="price"]');
+      price = getTextContent('.your-price, .price-now, .price, [class*="price"]');
     }
 
     // MSRP - Check Richelieu price block first, then fallback
@@ -287,9 +287,9 @@ async function scrapeRichelieu(page) {
     const categoryElements = document.querySelectorAll('.breadcrumb a, nav.breadcrumb a');
     const categoryPath = Array.from(categoryElements).map(el => el.textContent.trim()).join(' > ');
 
-    // DEBUG: Get HTML snippets for price-related elements
-    const priceHTML = getElementHTML('.your-price, .price-now, .product-price, .price, [class*="price"]');
-    const skuHTML = getElementHTML('.product-code, .sku-number, [itemprop="sku"]');
+    // DEBUG: Get HTML snippets for price-related elements (use same selectors as extraction)
+    const priceHTML = getElementHTML('.pms-Price, [itemprop="price"], .product-price, .your-price, .price-now');
+    const skuHTML = getElementHTML('.pms-PartNumber, [itemprop="sku"], .product-sku');
 
     return {
       name,
