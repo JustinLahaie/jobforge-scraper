@@ -235,17 +235,43 @@ async function scrapeRichelieu(page) {
       return element ? element.textContent.trim() : null;
     };
 
+    const getElementHTML = (selector) => {
+      const element = document.querySelector(selector);
+      return element ? element.outerHTML : null;
+    };
+
     // Product name
-    const name = getTextContent('h1.product-name, h1[itemprop="name"], .product-title h1');
+    const name = getTextContent('h1.product-name, h1[itemprop="name"], .product-title h1, h1');
 
-    // SKU
-    const sku = getTextContent('.product-code, .sku-number, span[itemprop="sku"], .product-sku');
+    // SKU - try multiple selectors
+    let sku = getTextContent('.product-code, .sku-number, span[itemprop="sku"], .product-sku');
 
-    // Price - try to get account-specific price first
-    let price = getTextContent('.your-price, .price-now, .product-price .price, .price-box .price');
+    // Price - Richelieu authenticated pricing selectors
+    let price = getTextContent('.pms-PriceBlock_Main .pms-PriceBlock_BreaksPrice');
 
-    // MSRP
-    const msrp = getTextContent('.list-price, .price-was, .msrp-price, .retail-price');
+    // Fallback to public pricing if not logged in
+    if (!price) {
+      price = getTextContent('.your-price, .price-now, .product-price .price, .price-box .price, .price, [class*="price"]');
+    }
+
+    // MSRP - Check Richelieu price block first, then fallback
+    let msrp = null;
+    const priceBlockItems = document.querySelectorAll('.pms-PriceBlock li');
+    if (priceBlockItems.length > 0) {
+      // MSRP is typically in one of the list items
+      for (const item of priceBlockItems) {
+        const text = item.textContent.toLowerCase();
+        if (text.includes('msrp') || text.includes('list') || text.includes('retail')) {
+          msrp = item.textContent.trim();
+          break;
+        }
+      }
+    }
+
+    // Fallback MSRP selectors
+    if (!msrp) {
+      msrp = getTextContent('.list-price, .price-was, .msrp-price, .retail-price');
+    }
 
     // Description
     const description = getTextContent('.product-description, .product-details, [itemprop="description"]');
@@ -261,6 +287,10 @@ async function scrapeRichelieu(page) {
     const categoryElements = document.querySelectorAll('.breadcrumb a, nav.breadcrumb a');
     const categoryPath = Array.from(categoryElements).map(el => el.textContent.trim()).join(' > ');
 
+    // DEBUG: Get HTML snippets for price-related elements
+    const priceHTML = getElementHTML('.your-price, .price-now, .product-price, .price, [class*="price"]');
+    const skuHTML = getElementHTML('.product-code, .sku-number, [itemprop="sku"]');
+
     return {
       name,
       sku,
@@ -270,11 +300,28 @@ async function scrapeRichelieu(page) {
       brand,
       imageUrl,
       categoryPath,
-      url: window.location.href
+      url: window.location.href,
+      // Debug info
+      debug: {
+        priceHTML: priceHTML ? priceHTML.substring(0, 500) : 'No price element found',
+        skuHTML: skuHTML ? skuHTML.substring(0, 500) : 'No SKU element found'
+      }
     };
   });
 
-  console.log('Richelieu scrape complete:', data);
+  console.log('Richelieu scrape complete:', {
+    name: data.name,
+    sku: data.sku,
+    price: data.price
+  });
+
+  // Log debug info to help identify selectors
+  if (!data.price || !data.sku) {
+    console.log('DEBUG - Missing data. HTML snippets:');
+    console.log('Price HTML:', data.debug?.priceHTML);
+    console.log('SKU HTML:', data.debug?.skuHTML);
+  }
+
   return data;
 }
 
